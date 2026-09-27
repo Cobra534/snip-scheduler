@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Snip Scheduler — Owner</title>
+<style>
+:root{
+  --bg:#faf8f5; --card:#fff; --ink:#231f1c; --sub:#7a736c; --line:#e8e2da;
+  --accent:#c9673a; --accent-ink:#fff;
+  --green:#4c9a6a; --yellow:#d6a02e; --red:#c94c3a; --radius:14px;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#1b1815;--card:#252220;--ink:#f3efe9;--sub:#a89f96;--line:#3a352f;}}
+:root[data-theme="dark"]{--bg:#1b1815;--card:#252220;--ink:#f3efe9;--sub:#a89f96;--line:#3a352f;}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;}
+.wrap{max-width:520px;margin:0 auto;padding:20px 16px 60px;}
+header{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;}
+h1{font-size:1.3rem;margin:0;letter-spacing:-.02em;}
+a.back{font-size:.78rem;color:var(--sub);text-decoration:none;}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:18px;margin-bottom:14px;}
+label{display:block;font-size:.78rem;color:var(--sub);margin:0 0 5px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;}
+input[type=password]{width:100%;padding:11px 12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--ink);font-size:1rem;}
+button.primary{width:100%;margin-top:14px;padding:13px;border:none;border-radius:10px;background:var(--accent);color:var(--accent-ink);font-size:1rem;font-weight:600;cursor:pointer;}
+.err{color:var(--red);font-size:.82rem;margin-top:8px;min-height:1.1em;}
+.empty{color:var(--sub);text-align:center;padding:30px 10px;font-size:.9rem;}
+.appt{border:1px solid var(--line);border-radius:12px;padding:13px;margin-bottom:10px;display:flex;gap:10px;align-items:flex-start;}
+.dot{width:12px;height:12px;border-radius:50%;margin-top:4px;flex-shrink:0;}
+.dot.green{background:var(--green)}.dot.yellow{background:var(--yellow)}.dot.red{background:var(--red)}
+.appt .name{font-weight:600;}
+.appt .meta{font-size:.82rem;color:var(--sub);margin-top:2px;}
+.badge{margin-left:auto;font-size:.7rem;text-transform:uppercase;padding:3px 8px;border-radius:20px;border:1px solid var(--line);color:var(--sub);cursor:pointer;flex-shrink:0;white-space:nowrap;}
+.badge.done{opacity:.5;text-decoration:line-through;}
+.del{background:none;border:none;color:var(--sub);font-size:1.1rem;cursor:pointer;padding:0 2px;}
+.hidden{display:none;}
+.logout{font-size:.78rem;color:var(--sub);background:none;border:none;cursor:pointer;text-decoration:underline;}
+.note{font-size:.75rem;color:var(--sub);margin-top:12px;line-height:1.4;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>💈 Owner Portal</h1>
+    <a class="back" href="index.html">← Booking page</a>
+  </header>
+
+  <!-- LOGIN GATE -->
+  <div id="loginGate" class="card">
+    <label>Owner password</label>
+    <input type="password" id="pw" placeholder="••••••••" onkeydown="if(event.key==='Enter')tryLogin()">
+    <button class="primary" onclick="tryLogin()">Log in</button>
+    <div class="err" id="err"></div>
+    <div class="note">The password lives in this page's source code (see the OWNER_PASSWORD constant near the bottom of owner.html) — it's a light gate to keep casual visitors out, not real security, since anyone can view a static site's source. Don't reuse a sensitive password here.</div>
+  </div>
+
+  <!-- APPOINTMENTS -->
+  <div id="ownerPanel" class="card hidden">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+      <label style="margin:0">Upcoming requests</label>
+      <button class="logout" onclick="logout()">Log out</button>
+    </div>
+    <div id="apptList"></div>
+  </div>
+</div>
+
+<script>
+// ---- Set your owner password here ----
+const OWNER_PASSWORD = "changeme123";
+// ---------------------------------------
+
+const LEVELS = {green:{emoji:"😌"},yellow:{emoji:"⏳"},red:{emoji:"🚨"}};
+
+function tryLogin(){
+  const val = document.getElementById('pw').value;
+  if(val === OWNER_PASSWORD){
+    sessionStorage.setItem('snip_owner_auth','1');
+    enterPanel();
+  } else {
+    document.getElementById('err').textContent = "Wrong password.";
+  }
+}
+function logout(){
+  sessionStorage.removeItem('snip_owner_auth');
+  document.getElementById('loginGate').classList.remove('hidden');
+  document.getElementById('ownerPanel').classList.add('hidden');
+  document.getElementById('pw').value='';
+}
+function enterPanel(){
+  document.getElementById('loginGate').classList.add('hidden');
+  document.getElementById('ownerPanel').classList.remove('hidden');
+  renderAppts();
+}
+
+function loadAppts(){ try{ return JSON.parse(localStorage.getItem('snip_appts')||'[]'); }catch(e){ return []; } }
+function saveAppts(list){ try{ localStorage.setItem('snip_appts', JSON.stringify(list)); }catch(e){} }
+
+function renderAppts(){
+  const list = loadAppts().sort((a,b)=>{
+    const order={red:0,yellow:1,green:2};
+    if(a.done!==b.done) return a.done?1:-1;
+    if(order[a.level]!==order[b.level]) return order[a.level]-order[b.level];
+    return (a.date+a.time).localeCompare(b.date+b.time);
+  });
+  const el = document.getElementById('apptList');
+  if(!list.length){ el.innerHTML = '<div class="empty">No requests yet.</div>'; return; }
+  el.innerHTML = list.map(a=>`
+    <div class="appt">
+      <div class="dot ${a.level}"></div>
+      <div style="flex:1">
+        <div class="name">${escapeHtml(a.name)} <span style="font-weight:400;color:var(--sub);font-size:.8rem">${LEVELS[a.level].emoji}</span></div>
+        <div class="meta">${a.date||'no date'} · ${a.time||'no time'}${a.note? ' · '+escapeHtml(a.note):''}</div>
+      </div>
+      <div class="badge ${a.done?'done':''}" onclick="toggleDone(${a.id})">${a.done?'done':'mark done'}</div>
+      <button class="del" onclick="deleteAppt(${a.id})">✕</button>
+    </div>`).join('');
+}
+function toggleDone(id){
+  const list = loadAppts();
+  const a = list.find(x=>x.id===id);
+  if(a){ a.done = !a.done; saveAppts(list); renderAppts(); }
+}
+function deleteAppt(id){
+  saveAppts(loadAppts().filter(x=>x.id!==id));
+  renderAppts();
+}
+function escapeHtml(s){
+  return s.replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+
+if(sessionStorage.getItem('snip_owner_auth')==='1'){ enterPanel(); }
+</script>
+</body>
+</html>

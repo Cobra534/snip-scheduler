@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Snip Scheduler</title>
+<style>
+:root{
+  --bg:#faf8f5; --card:#fff; --ink:#231f1c; --sub:#7a736c; --line:#e8e2da;
+  --accent:#c9673a; --accent-ink:#fff;
+  --green:#4c9a6a; --yellow:#d6a02e; --red:#c94c3a; --radius:14px;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#1b1815;--card:#252220;--ink:#f3efe9;--sub:#a89f96;--line:#3a352f;}}
+:root[data-theme="dark"]{--bg:#1b1815;--card:#252220;--ink:#f3efe9;--sub:#a89f96;--line:#3a352f;}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;}
+.wrap{max-width:520px;margin:0 auto;padding:20px 16px 60px;}
+header{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;}
+h1{font-size:1.3rem;margin:0;letter-spacing:-.02em;}
+a.ownerlink{font-size:.78rem;color:var(--sub);text-decoration:none;border:1px solid var(--line);padding:7px 12px;border-radius:20px;}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:18px;margin-bottom:14px;}
+label{display:block;font-size:.78rem;color:var(--sub);margin:12px 0 5px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;}
+input[type=text],input[type=date],input[type=time]{width:100%;padding:11px 12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--ink);font-size:1rem;}
+.levels{display:flex;gap:8px;margin-top:6px;}
+.lvl{flex:1;padding:12px 6px;border-radius:10px;border:2px solid var(--line);text-align:center;cursor:pointer;font-size:.85rem;font-weight:600;transition:.15s;}
+.lvl small{display:block;font-weight:400;font-size:.7rem;opacity:.75;margin-top:2px;}
+.lvl[data-l="green"].sel{background:var(--green);border-color:var(--green);color:#fff;}
+.lvl[data-l="yellow"].sel{background:var(--yellow);border-color:var(--yellow);color:#241d00;}
+.lvl[data-l="red"].sel{background:var(--red);border-color:var(--red);color:#fff;}
+button.primary{width:100%;margin-top:16px;padding:13px;border:none;border-radius:10px;background:var(--accent);color:var(--accent-ink);font-size:1rem;font-weight:600;cursor:pointer;}
+button.primary:active{opacity:.85;}
+.note{font-size:.78rem;color:var(--sub);margin-top:14px;line-height:1.4;}
+.notif{position:fixed;top:calc(12px + env(safe-area-inset-top,0px));left:50%;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:10px;font-size:.85rem;z-index:50;opacity:0;transition:opacity .3s;pointer-events:none;}
+.notif.show{opacity:1;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>💈 Snip Scheduler</h1>
+    <a class="ownerlink" href="owner.html">Owner login →</a>
+  </header>
+
+  <div class="card">
+    <label style="margin-top:0">Your name</label>
+    <input type="text" id="cName" placeholder="Jamie Rivera">
+
+    <label>How urgent is this?</label>
+    <div class="levels">
+      <div class="lvl" data-l="green" onclick="pickLevel('green')">😌 Chill<small>I've got time</small></div>
+      <div class="lvl" data-l="yellow" onclick="pickLevel('yellow')">⏳ Soon<small>Getting shaggy</small></div>
+      <div class="lvl" data-l="red" onclick="pickLevel('red')">🚨 Now!<small>Can't take it</small></div>
+    </div>
+
+    <label>Preferred date</label>
+    <input type="date" id="cDate">
+
+    <label>Preferred time</label>
+    <input type="time" id="cTime">
+
+    <label>Notes (optional)</label>
+    <input type="text" id="cNote" placeholder="Usual trim, fade, etc.">
+
+    <button class="primary" onclick="bookAppt()">Request appointment</button>
+    <div class="note">This runs entirely in your browser — no server. Bookings are stored on this device, so the owner sees them only when viewing owner.html on the same device/browser. For real cross-device sync, connect a backend or a form service.</div>
+  </div>
+</div>
+
+<div class="notif" id="notif"></div>
+
+<script>
+let chosenLevel = null;
+
+function pickLevel(l){
+  chosenLevel = l;
+  document.querySelectorAll('.lvl').forEach(el=>el.classList.toggle('sel', el.dataset.l===l));
+}
+function loadAppts(){ try{ return JSON.parse(localStorage.getItem('snip_appts')||'[]'); }catch(e){ return []; } }
+function saveAppts(list){ try{ localStorage.setItem('snip_appts', JSON.stringify(list)); }catch(e){} }
+function toast(msg){
+  const n = document.getElementById('notif');
+  n.textContent = msg; n.classList.add('show');
+  setTimeout(()=>n.classList.remove('show'), 2600);
+}
+
+function bookAppt(){
+  const name = document.getElementById('cName').value.trim();
+  const date = document.getElementById('cDate').value;
+  const time = document.getElementById('cTime').value;
+  const note = document.getElementById('cNote').value.trim();
+  if(!name){ toast("Add your name first"); return; }
+  if(!chosenLevel){ toast("Pick an urgency level"); return; }
+  if(!date || !time){ toast("Pick a date and time"); return; }
+
+  const list = loadAppts();
+  list.push({id:Date.now(), name, level:chosenLevel, date, time, note, done:false});
+  saveAppts(list);
+
+  if(chosenLevel==='red' && 'Notification' in window){
+    if(Notification.permission === 'granted'){
+      new Notification('New RED request!', {body:`${name} needs a haircut ASAP.`});
+    } else if(Notification.permission !== 'denied'){
+      Notification.requestPermission().then(p=>{
+        if(p==='granted') new Notification('New RED request!', {body:`${name} needs a haircut ASAP.`});
+      });
+    }
+  }
+
+  toast("Request sent! ✂️");
+  document.getElementById('cName').value='';
+  document.getElementById('cDate').value='';
+  document.getElementById('cTime').value='';
+  document.getElementById('cNote').value='';
+  chosenLevel=null;
+  document.querySelectorAll('.lvl').forEach(el=>el.classList.remove('sel'));
+}
+
+(function(){
+  document.getElementById('cDate').value = new Date().toISOString().slice(0,10);
+})();
+</script>
+</body>
+</html>
