@@ -75,10 +75,12 @@ button.primary{width:100%;margin-top:14px;padding:13px;border:none;border-radius
 const OWNER_PASSWORD = "MOM";
 // ---------------------------------------
 
-const LEVELS = {green:{emoji:"😌"},yellow:{emoji:"⏳"},red:{emoji:"🚨"}};
+const LEVELS = {green:{emoji:"😌",label:"Chill"},yellow:{emoji:"⏳",label:"Soon"},red:{emoji:"🚨",label:"NOW"}};
 let unsubscribe = null;
 let firstLoad = true;
 let seenIds = new Set();
+let notifiedReminders = new Set(); // "id:60" or "id:30"
+let reminderTimer = null;
 
 function tryLogin(){
   const val = document.getElementById('pw').value;
@@ -92,6 +94,7 @@ function tryLogin(){
 function logout(){
   sessionStorage.removeItem('snip_owner_auth');
   if(unsubscribe){ unsubscribe(); unsubscribe = null; }
+  if(reminderTimer){ clearInterval(reminderTimer); reminderTimer = null; }
   document.getElementById('loginGate').classList.remove('hidden');
   document.getElementById('ownerPanel').classList.add('hidden');
   document.getElementById('pw').value='';
@@ -99,6 +102,9 @@ function logout(){
 function enterPanel(){
   document.getElementById('loginGate').classList.add('hidden');
   document.getElementById('ownerPanel').classList.remove('hidden');
+  if('Notification' in window && Notification.permission==='default'){
+    Notification.requestPermission();
+  }
   if(unsubscribe) unsubscribe();
   unsubscribe = db.collection('appointments')
     .onSnapshot(renderSnapshot, err=>{
@@ -106,25 +112,28 @@ function enterPanel(){
         '<div class="empty">Couldn\'t load requests — check the Firebase config.</div>';
       console.error(err);
     });
+  if(reminderTimer) clearInterval(reminderTimer);
+  reminderTimer = setInterval(checkReminders, 30000);
 }
+
+let latestList = [];
 
 function renderSnapshot(snapshot){
   const list = [];
   snapshot.forEach(doc => list.push({id: doc.id, ...doc.data()}));
 
-  // Notify on newly-arrived red requests (after the first load)
+  // Notify on any newly-arrived booking (after the first load)
   if(!firstLoad){
-    list.filter(a=>a.level==='red' && !seenIds.has(a.id)).forEach(a=>{
+    list.filter(a=>!seenIds.has(a.id)).forEach(a=>{
       if('Notification' in window && Notification.permission==='granted'){
-        new Notification('New RED request!', {body:`${a.name} needs a haircut ASAP.`});
+        new Notification(`New booking — ${LEVELS[a.level].label} ${LEVELS[a.level].emoji}`,
+          {body:`${a.name}, ${a.date} at ${a.time}`});
       }
     });
   }
   list.forEach(a=>seenIds.add(a.id));
   firstLoad = false;
-  if('Notification' in window && Notification.permission==='default'){
-    Notification.requestPermission();
-  }
+  latestList = list;
 
   list.sort((a,b)=>{
     const order={red:0,yellow:1,green:2};
@@ -145,6 +154,24 @@ function renderSnapshot(snapshot){
       <div class="badge ${a.done?'done':''}" onclick="toggleDone('${a.id}', ${!!a.done})">${a.done?'done':'mark done'}</div>
       <button class="del" onclick="deleteAppt('${a.id}')">✕</button>
     </div>`).join('');
+}
+
+function checkReminders(){
+  if(!('Notification' in window) || Notification.permission!=='granted') return;
+  const now = new Date();
+  latestList.forEach(a=>{
+    if(a.done || !a.date || !a.time) return;
+    const when = new Date(`${a.date}T${a.time}`);
+    const minsUntil = (when - now) / 60000;
+    [60, 30].forEach(threshold=>{
+      const key = `${a.id}:${threshold}`;
+      if(minsUntil <= threshold && minsUntil > threshold - 1 && !notifiedReminders.has(key)){
+        notifiedReminders.add(key);
+        new Notification(`Upcoming: ${a.name} in ~${threshold} min`,
+          {body:`${a.date} at ${a.time} — ${LEVELS[a.level].label} ${LEVELS[a.level].emoji}`});
+      }
+    });
+  });
 }
 
 function toggleDone(id, current){
