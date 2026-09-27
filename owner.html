@@ -39,6 +39,10 @@ button.primary{width:100%;margin-top:14px;padding:13px;border:none;border-radius
 .logout{font-size:.78rem;color:var(--sub);background:none;border:none;cursor:pointer;text-decoration:underline;}
 .note{font-size:.75rem;color:var(--sub);margin-top:12px;line-height:1.4;}
 </style>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="firebase-config.js"></script>
 </head>
 <body>
 <div class="wrap">
@@ -53,7 +57,7 @@ button.primary{width:100%;margin-top:14px;padding:13px;border:none;border-radius
     <input type="password" id="pw" placeholder="••••••••" onkeydown="if(event.key==='Enter')tryLogin()">
     <button class="primary" onclick="tryLogin()">Log in</button>
     <div class="err" id="err"></div>
-    <div class="note">The password lives in this page's source code (see the OWNER_PASSWORD constant near the bottom of owner.html) — it's a light gate to keep casual visitors out, not real security, since anyone can view a static site's source. Don't reuse a sensitive password here.</div>
+    <div class="note">The password lives in this page's source code (see the OWNER_PASSWORD constant near the bottom of owner.html) — it's a light gate to keep casual visitors out, not real security, since anyone can view a static site's source or the Firebase config and query the database directly. Don't reuse a sensitive password here; lock the data down further with Firestore security rules if that matters to you.</div>
   </div>
 
   <!-- APPOINTMENTS -->
@@ -68,10 +72,13 @@ button.primary{width:100%;margin-top:14px;padding:13px;border:none;border-radius
 
 <script>
 // ---- Set your owner password here ----
-const OWNER_PASSWORD = "MOM";
+const OWNER_PASSWORD = "changeme123";
 // ---------------------------------------
 
 const LEVELS = {green:{emoji:"😌"},yellow:{emoji:"⏳"},red:{emoji:"🚨"}};
+let unsubscribe = null;
+let firstLoad = true;
+let seenIds = new Set();
 
 function tryLogin(){
   const val = document.getElementById('pw').value;
@@ -84,6 +91,7 @@ function tryLogin(){
 }
 function logout(){
   sessionStorage.removeItem('snip_owner_auth');
+  if(unsubscribe){ unsubscribe(); unsubscribe = null; }
   document.getElementById('loginGate').classList.remove('hidden');
   document.getElementById('ownerPanel').classList.add('hidden');
   document.getElementById('pw').value='';
@@ -91,19 +99,40 @@ function logout(){
 function enterPanel(){
   document.getElementById('loginGate').classList.add('hidden');
   document.getElementById('ownerPanel').classList.remove('hidden');
-  renderAppts();
+  if(unsubscribe) unsubscribe();
+  unsubscribe = db.collection('appointments').orderBy('date').orderBy('time')
+    .onSnapshot(renderSnapshot, err=>{
+      document.getElementById('apptList').innerHTML =
+        '<div class="empty">Couldn\'t load requests — check the Firebase config.</div>';
+      console.error(err);
+    });
 }
 
-function loadAppts(){ try{ return JSON.parse(localStorage.getItem('snip_appts')||'[]'); }catch(e){ return []; } }
-function saveAppts(list){ try{ localStorage.setItem('snip_appts', JSON.stringify(list)); }catch(e){} }
+function renderSnapshot(snapshot){
+  const list = [];
+  snapshot.forEach(doc => list.push({id: doc.id, ...doc.data()}));
 
-function renderAppts(){
-  const list = loadAppts().sort((a,b)=>{
+  // Notify on newly-arrived red requests (after the first load)
+  if(!firstLoad){
+    list.filter(a=>a.level==='red' && !seenIds.has(a.id)).forEach(a=>{
+      if('Notification' in window && Notification.permission==='granted'){
+        new Notification('New RED request!', {body:`${a.name} needs a haircut ASAP.`});
+      }
+    });
+  }
+  list.forEach(a=>seenIds.add(a.id));
+  firstLoad = false;
+  if('Notification' in window && Notification.permission==='default'){
+    Notification.requestPermission();
+  }
+
+  list.sort((a,b)=>{
     const order={red:0,yellow:1,green:2};
-    if(a.done!==b.done) return a.done?1:-1;
+    if(!!a.done!==!!b.done) return a.done?1:-1;
     if(order[a.level]!==order[b.level]) return order[a.level]-order[b.level];
     return (a.date+a.time).localeCompare(b.date+b.time);
   });
+
   const el = document.getElementById('apptList');
   if(!list.length){ el.innerHTML = '<div class="empty">No requests yet.</div>'; return; }
   el.innerHTML = list.map(a=>`
@@ -113,18 +142,16 @@ function renderAppts(){
         <div class="name">${escapeHtml(a.name)} <span style="font-weight:400;color:var(--sub);font-size:.8rem">${LEVELS[a.level].emoji}</span></div>
         <div class="meta">${a.date||'no date'} · ${a.time||'no time'}${a.note? ' · '+escapeHtml(a.note):''}</div>
       </div>
-      <div class="badge ${a.done?'done':''}" onclick="toggleDone(${a.id})">${a.done?'done':'mark done'}</div>
-      <button class="del" onclick="deleteAppt(${a.id})">✕</button>
+      <div class="badge ${a.done?'done':''}" onclick="toggleDone('${a.id}', ${!!a.done})">${a.done?'done':'mark done'}</div>
+      <button class="del" onclick="deleteAppt('${a.id}')">✕</button>
     </div>`).join('');
 }
-function toggleDone(id){
-  const list = loadAppts();
-  const a = list.find(x=>x.id===id);
-  if(a){ a.done = !a.done; saveAppts(list); renderAppts(); }
+
+function toggleDone(id, current){
+  db.collection('appointments').doc(id).update({done: !current}).catch(console.error);
 }
 function deleteAppt(id){
-  saveAppts(loadAppts().filter(x=>x.id!==id));
-  renderAppts();
+  db.collection('appointments').doc(id).delete().catch(console.error);
 }
 function escapeHtml(s){
   return s.replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));

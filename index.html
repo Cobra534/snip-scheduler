@@ -36,6 +36,10 @@ button.primary:active{opacity:.85;}
 .notif{position:fixed;top:calc(12px + env(safe-area-inset-top,0px));left:50%;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:10px;font-size:.85rem;z-index:50;opacity:0;transition:opacity .3s;pointer-events:none;}
 .notif.show{opacity:1;}
 </style>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="firebase-config.js"></script>
 </head>
 <body>
 <div class="wrap">
@@ -64,8 +68,8 @@ button.primary:active{opacity:.85;}
     <label>Notes (optional)</label>
     <input type="text" id="cNote" placeholder="Usual trim, fade, etc.">
 
-    <button class="primary" onclick="bookAppt()">Request appointment</button>
-    <div class="note">This runs entirely in your browser — no server. Bookings are stored on this device, so the owner sees them only when viewing owner.html on the same device/browser. For real cross-device sync, connect a backend or a form service.</div>
+    <button class="primary" id="bookBtn" onclick="bookAppt()">Request appointment</button>
+    <div class="note">Bookings sync to the owner in real time from any device, via Firestore.</div>
   </div>
 </div>
 
@@ -78,8 +82,6 @@ function pickLevel(l){
   chosenLevel = l;
   document.querySelectorAll('.lvl').forEach(el=>el.classList.toggle('sel', el.dataset.l===l));
 }
-function loadAppts(){ try{ return JSON.parse(localStorage.getItem('snip_appts')||'[]'); }catch(e){ return []; } }
-function saveAppts(list){ try{ localStorage.setItem('snip_appts', JSON.stringify(list)); }catch(e){} }
 function toast(msg){
   const n = document.getElementById('notif');
   n.textContent = msg; n.classList.add('show');
@@ -95,27 +97,26 @@ function bookAppt(){
   if(!chosenLevel){ toast("Pick an urgency level"); return; }
   if(!date || !time){ toast("Pick a date and time"); return; }
 
-  const list = loadAppts();
-  list.push({id:Date.now(), name, level:chosenLevel, date, time, note, done:false});
-  saveAppts(list);
+  const btn = document.getElementById('bookBtn');
+  btn.disabled = true; btn.textContent = "Sending...";
 
-  if(chosenLevel==='red' && 'Notification' in window){
-    if(Notification.permission === 'granted'){
-      new Notification('New RED request!', {body:`${name} needs a haircut ASAP.`});
-    } else if(Notification.permission !== 'denied'){
-      Notification.requestPermission().then(p=>{
-        if(p==='granted') new Notification('New RED request!', {body:`${name} needs a haircut ASAP.`});
-      });
-    }
-  }
-
-  toast("Request sent! ✂️");
-  document.getElementById('cName').value='';
-  document.getElementById('cDate').value='';
-  document.getElementById('cTime').value='';
-  document.getElementById('cNote').value='';
-  chosenLevel=null;
-  document.querySelectorAll('.lvl').forEach(el=>el.classList.remove('sel'));
+  db.collection('appointments').add({
+    name, level: chosenLevel, date, time, note, done:false,
+    created: firebase.firestore.FieldValue.serverTimestamp()
+  }).then(()=>{
+    toast("Request sent! ✂️");
+    document.getElementById('cName').value='';
+    document.getElementById('cDate').value='';
+    document.getElementById('cTime').value='';
+    document.getElementById('cNote').value='';
+    chosenLevel=null;
+    document.querySelectorAll('.lvl').forEach(el=>el.classList.remove('sel'));
+  }).catch(err=>{
+    toast("Couldn't send — check Firebase setup");
+    console.error(err);
+  }).finally(()=>{
+    btn.disabled = false; btn.textContent = "Request appointment";
+  });
 }
 
 (function(){
