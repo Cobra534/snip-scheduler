@@ -72,7 +72,7 @@ button.primary{width:100%;margin-top:14px;padding:13px;border:none;border-radius
 
 <script>
 // ---- Set your owner password here ----
-const OWNER_PASSWORD = "changeme123";
+const OWNER_PASSWORD = "MOM";
 // ---------------------------------------
 
 const LEVELS = {green:{emoji:"😌"},yellow:{emoji:"⏳"},red:{emoji:"🚨"}};
@@ -100,7 +100,7 @@ function enterPanel(){
   document.getElementById('loginGate').classList.add('hidden');
   document.getElementById('ownerPanel').classList.remove('hidden');
   if(unsubscribe) unsubscribe();
-  unsubscribe = db.collection('appointments').orderBy('date').orderBy('time')
+  unsubscribe = db.collection('appointments')
     .onSnapshot(renderSnapshot, err=>{
       document.getElementById('apptList').innerHTML =
         '<div class="empty">Couldn\'t load requests — check the Firebase config.</div>';
